@@ -154,7 +154,7 @@ function membercenter() {
     # 每日一次余量查询
     echo && echo
     curl -m 10 -sLA "$UA" -b $workdir/cookie --data "desmobile=$username&version=android@$unicom_version" "https://m.client.10010.com/mobileService/common/skip/queryLeavePackage.htm" >/dev/null
-    curl -m 10 -sLA "$UA" -b $workdir/cookie --data "type=0" "https://m.client.10010.com/mobileService/grow/marginCheck.htm"
+    curl -m 10 -sLA "$UA" -b $workdir/cookie --data "type=0" "https://m.client.10010.com/mobileService/grow/marginCheck.htm" >/dev/null
     
     # 签到
     echo && echo
@@ -255,14 +255,20 @@ function liulactive() {
         fi
         # 我的礼包-流量包-1G日包对应activeCode为73或者2534,当参数mygiftbag存在时运行: liulactive@d@ff80808166c5ee6701676ce21fd14716@13012341234@mygiftbag
         if [[ "$mygiftbag" != "" ]]; then
+            sleep 120
             curl -m 10 -X POST -sA "$UA"  -b $workdir/cookie --data "typeScreenCondition=2&category=FFLOWPACKET&pageSign=1&CALLBACKURL=https%3A%2F%2Fm.client.10010.com%2FmyPrizeForActivity%2Fquerywinninglist.htm" http://m.client.10010.com/myPrizeForActivity/mygiftbag.htm >$workdir/libaollactive.log
-            mygiftbaglist=($(cat $workdir/libaollactive.log | grep -oE "(73|2534)','[a-zA-Z0-9]+" | sed "s/','/@/g" | tr "\n" " "))
+            endtimeliststemp=($(cat $workdir/libaollactive.log | grep -A 50 -E "'(73|2534)','[a-zA-Z0-9]+" | grep -E "(onclick|boxBG_footer_leftTime)" | grep -oE "20[0-9]{2}-[0-9]{2}-[0-9]{2}" | sed "1~2d" | tr "\n" " "))
+            endtimelistsince=($(for endtime in ${endtimeliststemp[*]}; do date -d "$endtime 23:59:59" +"%s"; done | tr "\n" " "))
+            yesterdaytimesince=$(date -d "$(date +%Y-%m-%d -d "-1 days") 23:59:59" +"%s")
+            # 优先激活临期的流量礼包
+            mygiftbagtemp=($(cat $workdir/libaollactive.log | grep -oE "'(73|2534)','[a-zA-Z0-9]+" | sed -e "s/','/@/g" -e "s/^'//g"  | tr "\n" " "))
+            mygiftbaglist=($(for ((j = 0; j < ${#mygiftbagtemp[*]}; j++)); do echo ${endtimelistsince[j]}@${mygiftbagtemp[j]}; done | awk -F@ -v yesterdaytimesince="$yesterdaytimesince" '$1 > yesterdaytimesince {print $0}' | sort | grep -oE "(73|2534)@[a-zA-Z0-9]+$" | tr "\n" " "))
             for ((j = 0; j < ${#mygiftbaglist[*]}; j++)); do
                 curl -m 10 -X POST -sA "$UA"  -b $workdir/cookie --data "activeCode=${mygiftbaglist[j]%@*}&prizeRecordID=${mygiftbaglist[j]#*@}&userNumber=${username}" http://m.client.10010.com/myPrizeForActivity/queryPrizeDetails.htm >$workdir/libaollactive.log2
                 cat $workdir/libaollactive.log2 | grep -A 15 "奖品状态" | grep -qE "(未激活|激活失败)" || continue
                 libaollName=$(urlencode $(cat $workdir/libaollactive.log2 | grep "id=\"activeName" | cut -f4 -d\") | tr "a-z" "A-Z")
                 curl -m 10 -X POST -sA "$UA"  -b $workdir/cookie --data "activeCode=${mygiftbaglist[j]%@*}&prizeRecordID=${mygiftbaglist[j]#*@}&activeName=$libaollName" http://m.client.10010.com/myPrizeForActivity/myPrize/activationFlowPackages.htm | grep -oE "activationlimit"  && echo 我的礼包-流量包-1G日包-激活失败 >>$workdir/liulactive.info && break
-                sleep 10
+                sleep 120
                 curl -m 10 -X POST -sA "$UA"  -b $workdir/cookie --data "activeCode=${mygiftbaglist[j]%@*}&prizeRecordID=${mygiftbaglist[j]#*@}&userNumber=${username}" http://m.client.10010.com/myPrizeForActivity/queryPrizeDetails.htm | grep -A 15 "奖品状态" | grep -qE "已激活" && echo 我的礼包-流量包-1G日包-激活成功 >>$workdir/liulactive.info && break
             done
         fi      
@@ -368,14 +374,14 @@ function formatsendinfo() {
         echo ${all_parameter[*]} | grep -qE "jifeninfo"     && echo 积分:$total-$availablescore-$todayscore >>$formatsendinfo_file
         echo ${all_parameter[*]} | grep -qE "hfgoactive"    && echo 话费购奖品: $(cat $workdir/hfgoactive.info | tail -n +2) >>$formatsendinfo_file
         echo ${all_parameter[*]} | grep -qE "freescoregift" && echo 定向积分免费商品数量:$(cat $workdir/freescoregift.info | tail -n +3 | grep -cv '^$') >>$formatsendinfo_file
-        echo ${all_parameter[*]} | grep -qE "liulactive" && [[ -f $workdir/liulactive.info ]] && echo 流量激活: $(cat $workdir/liulactive.info) >>$formatsendinfo_file
+        echo ${all_parameter[*]} | grep -qE "liulactive" && [[ -f $workdir/liulactive.info ]] && [[ $(cat $workdir/liulactive.info) != "" ]] && echo 流量激活: $(cat $workdir/liulactive.info) >>$formatsendinfo_file
     else
         echo ${userlogin_err[u]} ${#userlogin_err[*]} Failed. ${userlogin_ook[u]} ${#userlogin_ook[*]} Accomplished. >$formatsendinfo_file
         echo ${all_parameter[*]} | grep -qE "otherinfo" && cat $workdir/otherinfo.info >>$formatsendinfo_file
         echo ${all_parameter[*]} | grep -qE "jifeninfo" && echo $(echo ${username:0:2}******${username:8}) 总积分:$total 本月将过期积分:$invalid 可用积分:$canUse 奖励积分:$availablescore 本月将过期奖励积分:$invalidscore 本月新增奖励积分:$addScore 本月消耗奖励积分:$decrScore 昨日奖励积分:$yesterdayscore 今日奖励积分:$todayscore >>$formatsendinfo_file
         echo ${all_parameter[*]} | grep -qE "hfgoactive" && cat $workdir/hfgoactive.info >>$formatsendinfo_file
         [[ $u == $((${#all_username_password[*]}-1)) ]] && echo ${all_parameter[*]} | grep -qE "freescoregift" && cat $workdir/freescoregift.info >>$formatsendinfo_file
-        echo ${all_parameter[*]} | grep -qE "liulactive" && [[ -f $workdir/liulactive.info ]] && echo 流量激活: $(cat $workdir/liulactive.info) >>$formatsendinfo_file
+        echo ${all_parameter[*]} | grep -qE "liulactive" && [[ -f $workdir/liulactive.info ]] && [[ $(cat $workdir/liulactive.info) != "" ]] && echo 流量激活: $(cat $workdir/liulactive.info) >>$formatsendinfo_file
     fi
     cat $formatsendinfo_file
 }
@@ -385,21 +391,21 @@ function telegrambot() {
     echo ${all_parameter[*]} | grep -qE "token@[a-zA-Z0-9:_-]+" && token="$(echo ${all_parameter[*]} | grep -oE "token@[a-zA-Z0-9:_-]+" | cut -f2 -d@)" || return 0
     echo ${all_parameter[*]} | grep -qE "chat_id@[0-9-]+" && chat_id="$(echo ${all_parameter[*]} | grep -oE "chat_id@[0-9-]+" | cut -f2 -d@)" || return 0
     echo && echo starting telegrambot...
-    curl -m 10 -sX POST "https://api.telegram.org/bot$token/sendMessage" -d "chat_id=$chat_id&text=$(cat $formatsendinfo_file)"
+    curl -m 10 -sX POST "https://api.telegram.org/bot$token/sendMessage" -d "chat_id=$chat_id&text=$(cat $formatsendinfo_file)" >/dev/null
 }
 
 function serverchan() {
     # serverchan旧版通知消息: sckey@************
     echo ${all_parameter[*]} | grep -qE "sckey@[a-zA-Z0-9:_-]+" && sckey="$(echo ${all_parameter[*]} | grep -oE "sckey@[a-zA-Z0-9:_-]+" | cut -f2 -d@)" || return 0
     echo && echo starting serverchan...
-    curl -m 10 -sX POST "https://sc.ftqq.com/$sckey.send" -d "text=$(cat $formatsendinfo_file)"
+    curl -m 10 -sX POST "https://sc.ftqq.com/$sckey.send" -d "text=$(cat $formatsendinfo_file)" >/dev/null
 }
 
 function bark() {
     # bark通知消息: bark@************;bark推送不编码有换行推送不了，用tr空格替换了,推送效果极差
     echo ${all_parameter[*]} | grep -qE "bark@[a-zA-Z0-9:_-]+" && bark="$(echo ${all_parameter[*]} | grep -oE "bark@[a-zA-Z0-9:_-]+" | cut -f2 -d@)" || return 0
     echo && echo starting bark...
-    curl -m 10 -sX POST "https://api.day.app/$bark/$(cat $formatsendinfo_file | tr "\n" " ")"
+    curl -m 10 -sX POST "https://api.day.app/$bark/$(cat $formatsendinfo_file | tr "\n" " ")" >/dev/null
 }
 
 function main() {
